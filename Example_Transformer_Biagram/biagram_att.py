@@ -6,21 +6,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-batch_size=64
-block_size=256
+batch_size=32
+block_size=8
 max_iters=3
 eval_interval=300
 learning_rate=3e-4
 device='cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters=200
-n_embd=384
-n_head=6
-n_layers=6
+n_embd=100
+n_head=4
+n_layers=2
 dropout=0.2
 
 torch.manual_seed(1337)
 
-with open("names.txt",'r',encoding='utf-8') as f :
+with open("Example_Transformer_Biagram\\names.txt",'r',encoding='utf-8') as f :
     words=f.read()
 
 chars=sorted(list(set(words)))
