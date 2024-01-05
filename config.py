@@ -3,11 +3,11 @@ from pathlib import Path
 
 def get_config() :
     return {
-        "batch_size" : 8,
-        "num_epochs" : 2,
+        "batch_size" : 32,
+        "num_epoch" : 2,
         "lr" :  1e-4,
         "seq_len" :300,
-        "d_model ": 512,
+        "d_model": 512,
         "lang_src" : "en",
         "lang_tgt" : "it",
         "model_folder" : "weights",
