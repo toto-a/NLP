@@ -45,10 +45,10 @@ class InputEmbedding(nn.Module) :
 
 
 class RoPe(nn.Module) :
-    def __init__(self, base,seq_len,d_model) -> None:
+    def __init__(self, base,head_dim) -> None:
         super().__init__()
         self.base=base
-        self.d=d_model
+        self.d=head_dim
         self.cos_cached=None
         self.sin_cached=None
         
@@ -62,15 +62,37 @@ class RoPe(nn.Module) :
         theta=1./(10000**(torch.arange(0,self.d,2)/self.d)).float().to(device)
         seq_indx=torch.arange(0,seq_len,device=device).float().to(device)
 
-        ##Product of index and theta (m*theta)
+        ##Product of index and theta (m*theta) (Seq_len, head_dim/2)
         idx_theta=torch.einsum('n,d->nd',seq_indx,theta)
 
-        ##..And repeat(2 time)
+        ##..And repeat(2 time) (Seq_len,head_dim)
         idx_theta2=torch.cat([idx_theta,idx_theta],dim=1)
 
+        # self.cos_cached=idx_theta2.cos()[None,:,None,:]
+        # self.sin_cached=idx_theta2.sin()[None,:,None,:]
 
-        self.cos_cached=idx_theta2.cos()[:,None,None,:]
-        self.sin_cached=idx_theta2.sin()[:,None,None,:]
+        idx_theta_complex=torch.polar(torch.ones(idx_theta),idx_theta)
+        return idx_theta_complex
+
+    def forward(self,x :torch.Tensor) :
+        freq_complex=self._build_cache(x) ##(Seq_len,head_dim/2)
+        freq_complex=freq_complex[None,:,None,:] ##(1,Seq_len,1,head_dim/2)
+
+        ## x->(B,seq_len,H,head_dim)->(B,seq_len,H,head_dim/2)
+        x_complex=torch.view_as_complex(x.float().reshape(*x.shape[:-1],-1,-2)) ##Reshape x into [xd_1,xd] into the complex plane
+
+        ## x_rope_complex->(B,seq_len,H,head_dim/2) .. beacause of broadcast
+        x_rope_complex=x_complex * freq_complex
+
+        ## x_rope->(B,seq_len,H,head_dim/2, 2), the [a+ib] become [a b]
+        x_rope=torch.view_as_real(x_rope_complex)
+        
+        ##x_rope=x_rope.flatten(start_dim=-2, end_dim=-1)
+        
+        ## x_rope-> (B,seq_len,H,head_dim)
+        x_rope=x_rope.reshape(*x.shape)
+
+        return x_rope.type_as(x).to(device)
 
 
 
