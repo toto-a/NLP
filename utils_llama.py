@@ -18,3 +18,16 @@ class SwiGlu(nn.Module):
         out=F.sigmoid(self.L1(x))@self.L2(x)
         return out
 
+class RMSnorm(nn.Module):
+    def __init__(self,dim,eps=1e-6) -> None:
+        super().__init__()
+        self.weight=nn.Parameter(torch.ones(dim),requires_grad=True)
+        self.eps=eps
+        
+    def _norm(self,x):
+        return x*(torch.rsqrt((x.pow(2)).mean(-1,keepdim=True)+self.eps)) 
+
+
+    def forward(self,x) :
+        
+        return  self.weight*self._norm(x.float()).type_as(x)
