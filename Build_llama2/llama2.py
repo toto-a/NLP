@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from typing import Optional
 from dataclasses import dataclass
 
-from utils_llama import SwiGlu
+from utils_llama import SwiGlu,RMSnorm,FeedForward
 
 
 
@@ -106,34 +106,6 @@ class RoPe(nn.Module) :
 
 
 
-class RMS(nn.Module) :
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-    
-    def forward(self,x) :
-        return
-
-
-class FeedForward(nn.Module):
-    def __init__(self, d_model,d_ff) -> None:
-        #d_ff size of the hidden state
-        super().__init__()
-        self.swish_glu=SwiGlu(d_ff,d_ff)
-
-        self.net=nn.Sequential(
-            nn.Linear(d_model,d_ff),
-            self.swish_glu,
-            nn.Dropout(dropout),
-            nn.Linear(d_ff,d_model)
-        )
-    def forward(self, x):
-        #(Batch, seq_len,d_model)-> (Batch,seq_len,d_ff) -> (Batch_size,seq_len,d_model)
-        
-        out=self.net(x)
-        return out
-
-
-
 class RoPeMultiHeadAttention(nn.Module):
     ##Head of different size for the query, (key and value)
     ##RoPe used only for the query and the key
@@ -197,7 +169,7 @@ class RoPeMultiHeadAttention(nn.Module):
 class ProjectionLayer(nn.Module):
     def __init__(self,d_model,vocab_size) -> None:
         super().__init__()
-        self.norm=RMS()
+        self.norm=RMSnorm()
         self.proj=nn.Linear(d_model,vocab_size)
     
     def forward(self,x):
@@ -208,7 +180,7 @@ class Decoder(nn.Module):
     def __init__(self,d_model, n_head,d_ff) :
         self.sa_heads=RoPeMultiHeadAttention(d_model,n_head,d_model//n_head)
         self.ffn=FeedForward(d_model,d_ff)
-        self.rms=RMS(d_model)
+        self.rms=RMSnorm(d_model)
     
     def forward(self,x):
         _x=x
@@ -224,11 +196,13 @@ class Llama2(nn.Module) :
     def __init__(self,args:ModelArgs) -> None:
         super().__init__()
         self.token_embedding=InputEmbedding(args.vocab_size,args.dim)
-        self.in_norm=RMS()
-        self.out_norm=RMS()
+        self.in_norm=RMSnorm()
+        self.out_norm=RMSnorm()
         self.ffn=FeedForward(args.dim, args.dim_ffn_multiple)
+
 
 
     def forward(self,x) :
         x=self.token_embedding(x)
+        return x
 
