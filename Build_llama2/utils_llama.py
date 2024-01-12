@@ -59,3 +59,16 @@ class FeedForward(nn.Module):
 
             # (m, seq_len, hidden_dim) --> (m, seq_len, dim)
             return self.w3(x)
+
+
+
+
+def repeat_kv(x,n_rep) :
+    B,seq_len,n_kv,d_kv=x.shape
+    if n_rep==1 :
+        return x
+    else :
+        #(B,seq_len,n_kv_heads,1,d_kv) ->#(B,seq_len,n_kv_heads,n_rep,d_kv) -> (B,seq_len,n_kv_heads*n_rep,d_kv)
+        x=x[:,:,:,None,:].expand(B,seq_len,n_kv,n_rep,d_kv).reshape(B,seq_len,n_kv*n_rep,d_kv)
+        return x
+

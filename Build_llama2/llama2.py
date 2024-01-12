@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from typing import Optional
 from dataclasses import dataclass
 
-from utils_llama import SwiGlu,RMSnorm,FeedForward
+from utils_llama import SwiGlu,RMSnorm,FeedForward,repeat_kv
 
 
 
@@ -21,7 +21,7 @@ class ModelArgs :
     vocab_size: int = -1 ##Tokenizer param
     mutiple_of: int=256
     dim_ffn_multiple : Optional[float]=None
-    norm_dps : float =None
+    norm_eps : float =None
 
 
     ##KV cache
@@ -45,9 +45,8 @@ class InputEmbedding(nn.Module) :
 
 
 class RoPe(nn.Module) :
-    def __init__(self, base,head_dim) -> None:
+    def __init__(self, head_dim) -> None:
         super().__init__()
-        self.base=base
         self.d=head_dim
         self.cos_cached=None
         self.sin_cached=None
@@ -66,8 +65,7 @@ class RoPe(nn.Module) :
         idx_theta=torch.einsum('n,d->nd',seq_indx,theta)
 
         ##..And repeat(2 time) (Seq_len,head_dim)
-        idx_theta2=torch.cat([idx_theta,idx_theta],dim=1)
-
+        # idx_theta2=torch.cat([idx_theta,idx_theta],dim=1)
         # self.cos_cached=idx_theta2.cos()[None,:,None,:]
         # self.sin_cached=idx_theta2.sin()[None,:,None,:]
 
@@ -97,43 +95,39 @@ class RoPe(nn.Module) :
 
 
 
-    def forward(self,x) :
-        ## x is the input of a query or a key , of shape (batch,seq_len,n_heads,d_head)
-        self._build_cache(x)
 
-        return 
-
-
-
-
-class RoPeMultiHeadAttention(nn.Module):
+class GPASelfAttention(nn.Module):
     ##Head of different size for the query, (key and value)
     ##RoPe used only for the query and the key
-    def __init__(self, d_model,num_head, head_size_query,head_size) -> None:
+    ##KV cache
+    def __init__(self, args :ModelArgs) -> None:
         super().__init__()
 
-        self.h=num_head
-        self.d_model=d_model
-        self.dkv=head_size
-        self.dq=head_size_query
+        self.h_query=args.n_heads ##Head for the query
+        self.h_kv=args.n_heads if args.n_kv_heads is  None else args.n_kv_heads ##Heads for the keys and values 
+        self.d_model=args.dim
 
-        self.q=nn.Linear(d_model,d_model)
-        self.kv=nn.Linear(d_model*d_model,d_model)
+        self.n_rep=self.h_query//self.h_kv ##Indicate hwo much the heads of K and V be repeated to match the query
+        self.dkv=self.d_model//self.h_kv ##Head dimension
+        self.dq=self.d_model//self.h_query
+
+        self.wq=nn.Linear(args.dim,args.n_heads*self.dq)
+        self.wkv=nn.Linear(args.dim*args.dim,args.n_kv_heads*self.dkv)
+        self.proj=nn.Linear(args.n_heads*self.dq,args.dim)
         self.dropout=nn.Dropout(dropout)
-       
-        self.proj=nn.Linear(d_model,d_model)
-        self.dropout=nn.Dropout(dropout)
+
+        self.rope_q=RoPe(self.dq)
+        self.rope_k=RoPe(self.dkv)
+        self.cache_k=torch.zeros((args.max_batch_size,args.max_seq_len,self.h_kv,self.dq))
+        self.cache_v=torch.zeros((args.max_batch_size,args.max_seq_len,self.h_kv,self.dq))
 
     
     @staticmethod
-    def attention(query,key,value,mask,dropout : nn.Dropout):
+    def attention(query,key,value,dropout : nn.Dropout):
         dhead=query.shape[-1]
         
 
         attention_scores=query@key.transpose(-2,-1)*dhead**-0.5
-        if  mask is not None: 
-            attention_scores=attention_scores.masked_fill(mask==0,value=float('-inf'))    
-
         attention=F.softmax(attention_scores,dim=-1)
         if dropout is not None : 
             attention_scores=dropout(attention_scores)
@@ -143,25 +137,48 @@ class RoPeMultiHeadAttention(nn.Module):
 
         
     
-    def forward(self,query,key,value,mask):
+    def forward(self,x,start_pos):
 
+        B,seq_len,dim=x.shape
       
-        q=self.q(query)
-        k,v=torch.chunk(self.kv(torch.cat([k,v],dim=1)),2,dim=-1)
+        q=self.wq(x) ##->(B,seq_len,H_Q*Head_dim)
+        k,v=torch.chunk(self.wkv(torch.cat([k,v],dim=1)),2,dim=-1)
 
-        B,seq_len,embd=q.shape
 
-        # (Batch,seq_len,d_model)->(Batch,seq_len,n_head,head_size)->(Batch,n_head,seq_len,head_size)
-        q=q.view(B,seq_len,self.h,self.dh).transpose(1,2)
-        k=k.view(B,seq_len,self.h,self.dh).transpose(1,2)
-        v=v.view(B,seq_len,self.h,self.dh).transpose(1,2)
+        # (Batch,seq_len,d_model)->(Batch,seq_len,n_head,head_size)
+        q=q.view(B,seq_len,self.h_query,self.dq)
+        k=k.view(B,seq_len,self.h_kv,self.dkv)
+        v=v.view(B,seq_len,self.h_kv,self.dkv)
 
-        x,attention_score=RoPeMultiHeadAttention.attention(q,k,v,mask,self.dropout)
-        x=x.transpose(1,2).contiguous().view(B,seq_len,self.h*self.dh)#(Batch,n_head,seq_len,head_size)->(Batch,seq_len,n_head,head_size) ->(Batch,seq_len,d_model)
+        #RoPE does not change shape
+        xq=self.rope_q(q)
+        xk=self.rope_k(k)
+
+        ##Replace the cache for this value
+        self.cache_k[:B,start_pos:start_pos+seq_len,:]=xk
+        self.cache_v[:B,start_pos:start_pos+seq_len,:]=v
+
+        ##Retrieve cached keys and values to compute self_attention
+        #(B,seq_lenKV, H_KV, D_KV)
+        keys=self.cache_k[:B,0:start_pos+seq_len]
+        values=self.cache_v[:B,0:start_pos+seq_len]
+
+        ##Repeat heads of the cached values to reach the numbers of head for the query
+        keys=repeat_kv(keys,self.n_rep)
+        values=repeat_kv(keys,self.n_rep)
+
+        ##Reshape to see n_heads as a batch dim
+        xq=xq.transpose(1,2)
+        keys=keys.transpose(1,2)
+        values=values.transpose(1,2)
+
+
+        x,attention_score=GPASelfAttention.attention(q,k,v,self.dropout)
+        #(Batch,n_head,seq_len,head_size)->(Batch,seq_len,n_head,head_size) ->(Batch,seq_len,d_model)
+        x=x.transpose(1,2).contiguous().view(B,seq_len,self.h_query*self.dq)
 
         out=self.proj(x)
 
-            # (Batch,seq_len,d_model)->(Batch,seq_len,d_model)
         return out
 
 
@@ -169,23 +186,31 @@ class RoPeMultiHeadAttention(nn.Module):
 class ProjectionLayer(nn.Module):
     def __init__(self,d_model,vocab_size) -> None:
         super().__init__()
-        self.norm=RMSnorm()
+        self.norm=RMSnorm(d_model)
         self.proj=nn.Linear(d_model,vocab_size)
     
     def forward(self,x):
         return torch.log_softmax(self.proj(self.norm(x),dim=-1,dtype=torch.int64))
 
 
-class Decoder(nn.Module):
-    def __init__(self,d_model, n_head,d_ff) :
-        self.sa_heads=RoPeMultiHeadAttention(d_model,n_head,d_model//n_head)
-        self.ffn=FeedForward(d_model,d_ff)
-        self.rms=RMSnorm(d_model)
+class Encoder(nn.Module):
+    def __init__(self,args:ModelArgs) :
+        super().__init__()
+
+        self.n_heads=args.n_heads
+        self.dim=args.dim
+        self.head_dim=self.dim//self.n_heads
+
+        self.sa_heads=GPASelfAttention(args)
+        self.ffn=FeedForward(self.dim,args.mutiple_of,args.dim_ffn_multiple)
+        self.rms_bf_att=RMSnorm(self.dim,args.norm_eps)
+        self.rms_ffn_norm=RMSnorm(self.dim,args.norm_eps)
     
-    def forward(self,x):
-        _x=x
-        out=self.sa_heads(x)
-        out=_x+self.rms(out)
+    def forward(self,x,start_pos):
+
+        out=x+self.sa_heads(self.rms_bf_att(x),start_pos)
+        out=out+self.ffn(self.rms_ffn_norm(out))
+
 
         return out
 
@@ -196,13 +221,17 @@ class Llama2(nn.Module) :
     def __init__(self,args:ModelArgs) -> None:
         super().__init__()
         self.token_embedding=InputEmbedding(args.vocab_size,args.dim)
-        self.in_norm=RMSnorm()
-        self.out_norm=RMSnorm()
-        self.ffn=FeedForward(args.dim, args.dim_ffn_multiple)
-
+        self.encoder_blocks=nn.ModuleList([Encoder(args) for _ in range(args.n_layers)])
+        self.proj=ProjectionLayer(args.dim,args.vocab_size)
 
 
     def forward(self,x) :
         x=self.token_embedding(x)
+
+        for layer in self.encoder_blocks :
+            x=layer(x)
+        
+        x=self.proj(x)
+
         return x
 
