@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from typing import Optional
 from dataclasses import dataclass
 
-from utils_llama import SwiGlu,RMSnorm,FeedForward,repeat_kv
+from utils_llama import RMSnorm,FeedForward,repeat_kv
 
 
 
@@ -112,8 +112,9 @@ class GPASelfAttention(nn.Module):
         self.dq=self.d_model//self.h_query
 
         self.wq=nn.Linear(args.dim,args.n_heads*self.dq)
-        self.wkv=nn.Linear(args.dim*args.dim,args.n_kv_heads*self.dkv)
-        self.proj=nn.Linear(args.n_heads*self.dq,args.dim)
+        self.wk=nn.Linear(args.dim,args.n_kv_heads*self.dkv)
+        self.wv=nn.Linear(args.dim,args.n_kv_heads*self.dkv)
+        self.wo=nn.Linear(args.n_heads*self.dq,args.dim)
         self.dropout=nn.Dropout(dropout)
 
         self.rope_q=RoPe(self.dq)
@@ -142,7 +143,8 @@ class GPASelfAttention(nn.Module):
         B,seq_len,dim=x.shape
       
         q=self.wq(x) ##->(B,seq_len,H_Q*Head_dim)
-        k,v=torch.chunk(self.wkv(torch.cat([k,v],dim=1)),2,dim=-1)
+        k=self.wk(x)
+        v=self.wv(x)
 
 
         # (Batch,seq_len,d_model)->(Batch,seq_len,n_head,head_size)
@@ -177,7 +179,7 @@ class GPASelfAttention(nn.Module):
         #(Batch,n_head,seq_len,head_size)->(Batch,seq_len,n_head,head_size) ->(Batch,seq_len,d_model)
         x=x.transpose(1,2).contiguous().view(B,seq_len,self.h_query*self.dq)
 
-        out=self.proj(x)
+        out=self.wo(x)
 
         return out
 
