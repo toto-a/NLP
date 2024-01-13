@@ -205,7 +205,7 @@ def train_model(config):
             #Run through the transformer
             encoder_output=model.encode(encoder_input,encoder_mask)
             decoder_output=model.decode(encoder_output,encoder_mask,decoder_input,decoder_mask) #(Batchn seq_len, d_model)
-            proj_output=model.proj(decoder_output) #(Batch, seq_len , vocan_size)
+            proj_output=model.proj(decoder_output) #(Batch, seq_len , vocab_size)
 
             label=batch["label"].to(device) #(Batch,seq_len)
 
