@@ -40,7 +40,7 @@ class PositionalEmbedding(nn.Module):
 
     def forward(self, x:torch.Tensor) :
         T=x.shape[1] ##seq_len
-        out=(x+self.pe[:,:T,:]).requires_grad_(False) ##Absolute position
+        out=x+(self.pe[:,:T]).requires_grad_(False) ##Absolute position
         return out
 
 
@@ -88,10 +88,66 @@ class MultiHeadAttention(nn.Module):
         return y
 
 
-           
+
+class FFN(nn.Module):
+    def __init__(self, args:GPTModelArgs) -> None:
+        super().__init__()
+        self.net=nn.Sequential(
+            nn.Linear(args.dim, args.dim*args.dim_ffn_multiple),
+            nn.GELU(),
+            nn.Linear(args.dim*args.dim_ffn_multiple, args.dim)
+            
+        )
+    
+    def forward(self, x :torch.tensor):
+        return self.net(x)
 
 
+
+class GPTBlock(nn.Module):
+    def __init__(self, args : GPTModelArgs):
+        self.mha=MultiHeadAttention(args)
+        self.pre_norm=nn.LayerNorm(args.dim)
+        self.dropout=nn.Dropout(args.dropout)
+        self.post_norm=nn.LayerNorm(args.dim)
+    
+    def forward(self, x:torch.tensor) :
+        x=self.pre_norm(x)
+        x=x+self.dropout(self.mha(x))
+        x=self.post_norm(x)
+        x=x+self.dropout(self)
+
+
+
+class GPT(nn.Module):
+    def __init__(self, args : GPTModelArgs) -> None:
+        super().__init__()
+        self.pe=PositionalEmbedding(args)
+        self.we=nn.Embedding(args.vocab_size, args.dim)
+        self.blocks=nn.ModuleList([GPTBlock(args) for _ in range(args.n_layers)])
+        self.ln=nn.LayerNorm(args.dim)
+        self.ml_head=nn.Linear(args.dim,args.vocab_size)
+
+    def forward(self, x :torch.tensor, targets=None):
+        x=self.we(x) ## token embeddings
+        x=self.pe(x)
         
+        for block in self.blocks :
+            x=block(x)
+        
+        x=self.ln(x)
+        if targets is not None : 
+            x=self.ml_head(x)
+            loss=F.cross_entropy(x.view(-1, x.size(-1)), targets.view(-1), ignore_index=-1)
+        
+        else : 
+            logits = self.lm_head(x[:, [-1], :]) # using list [-1] to preserve the time dim
+            loss = None
+
+        return logits, loss
+    
+ 
+       
 
 
 
