@@ -43,4 +43,8 @@ dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported
 compile = True # use PyTorch 2.0 to compile the model to be faster
 
 # -----------------------------------------------------------------------------
-
+model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
+                  bias=bias, vocab_size=None, dropout=dropout)
+model_args['vocab_size'] =50304
+gptconf = GPTModelArgs(**model_args)
+model = GPT(gptconf)
