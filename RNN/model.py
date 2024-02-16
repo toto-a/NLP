@@ -9,28 +9,43 @@ class SimpleRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size) -> None:
         super().__init__()
         self.hideen_size = hidden_size
-        self.in2hid = nn.Linear(input_size + hidden_size, hidden_size)
-        self.gate=nn.Sigmoid()
-        self.in2out = nn.Linear(input_size + hidden_size, output_size)
+        self.in2hid = nn.Linear(input_size, hidden_size)
+        self.h2h = nn.Linear(hidden_size, hidden_size)
+        self.gate=nn.Tanh()
+        self.in2out = nn.Linear(hidden_size, output_size)
     
     def forward(self, x, hidden):
-        combined = torch.cat((x, hidden), 1)
-        hidden = self.gate(self.in2hid(combined))
+        
+        combined=self.in2hid(x)+self.h2h(hidden)
+        hidden = self.gate(combined)
         output = self.in2out(combined)
         return output, hidden
     
-    def init_hidden(self):
-        return nn.init.kaiming_uniform_(torch.zeros(1, self.hideen_size))
+    def init_hidden(self,batch_size=16):
+        return nn.init.kaiming_uniform_(torch.zeros(batch_size, self.hideen_size))
     
-    @torch.no_grad()
     def predict(self,name):
-        self.eval()
         hidden_state= self.init_hidden()
         for char in name:
             output, hidden_state = self(char, hidden_state)
         pred=torch.argmax(output,dim=1,keepdim=True).item()
 
-        print(f' For name {tensor2name(name)} predicted language is {label2lang[pred]}')
-        self.train()
+        # print(f' For name {tensor2name(name)} predicted language is {label2lang[pred]}')
         return label2lang[pred]
+    
+    def generate(self,data,pred_len=1000):
+        pred=data.vector_to_string([torch.randint(0, data.vocab_size-1, (1,)).item() ])
+        hidden_state= self.init_hidden()
+
+        for i in range(pred_len-1):
+            last_char=data.char_to_idx[pred[-1]]
+            X,hidden_state=torch.tensor([last_char]).float(),hidden_state.float()
+            output, hidden_state = self(X, hidden_state)
+            prob=F.softmax(output,dim=-1)
+            result=torch.multinomial(prob,1)
+            result_list=result.view(-1).tolist()
+            pred+=data.vector_to_string(result_list)
+        
+        return pred
+
             
