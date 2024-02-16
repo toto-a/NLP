@@ -20,7 +20,7 @@ dropout=0.2
 
 torch.manual_seed(1337)
 
-with open("Example_Transformer_Biagram\\names.txt",'r',encoding='utf-8') as f :
+with open("names.txt",'r',encoding='utf-8') as f :
     words=f.read()
 
 chars=sorted(list(set(words)))
@@ -35,6 +35,8 @@ vocab_size=len(chars)
 n=int(0.9*len(data))
 train_data=data[:n]
 val_data=data[n:]
+
+print(f"VOCAB SIZE : {vocab_size}")
 
 
 #Loading data
@@ -236,3 +238,6 @@ for iter in range(max_iters):
 
 context=torch.zeros((1,1),dtype=torch.long,device=device)
 print(decode(m.generate(context,max_new_tokens=500)[0].tolist()))
+
+if __name__=="__main__" :
+    print(vocab_size)
