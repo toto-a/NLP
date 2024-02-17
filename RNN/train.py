@@ -65,7 +65,7 @@ def train_predict(model, criterion, optimizer, dataset, n_epochs=2, name2tensor=
             )
 
 
-def train(model, optimizer, dataset_loader,loss_fn, n_epochs=4):
+def train(model, optimizer, dataset_loader,loss_fn, n_epochs=4,cell_state=None,hidden_state=None):
 
     epoch_loss={}
     for epoch in tqdm(range(n_epochs)):
@@ -76,14 +76,25 @@ def train(model, optimizer, dataset_loader,loss_fn, n_epochs=4):
                 continue
 
             hidden=model.init_hidden()
+            if cell_state is None :
+                cell_state=model.init_hidden()
+            else :
+                cell_state=cell_state
             X,Y,hidden=X.float(),Y.float(),hidden.float()
 
             model.zero_grad()
             loss=0
-            for c in range(X.size(1)):
-                output,hidden=model(X[:,c].view(X.size(0),1),hidden)
-                l=loss_fn(output,Y[:,c].long())
-                loss+=l
+            if cell_state is not None: 
+                for c in range(X.size(1)):
+                    output,hidden=model(X[:,c].view(X.size(0),1),hidden,cell_state)
+                    l=loss_fn(output,Y[:,c].long())
+                    loss+=l
+
+            else:
+                for c in range(X.size(1)):
+                    output,hidden=model(X[:,c].view(X.size(0),1),hidden)
+                    l=loss_fn(output,Y[:,c].long())
+                    loss+=l
             
 
             loss.backward()
@@ -115,7 +126,7 @@ if __name__ == "__main__":
     hidden_size = 256
     learning_rate = 0.001
 
-    model= SimpleRNN(input_size=1 ,hidden_size=hidden_size,output_size=text_dataset.vocab_size) ## 1 char a time
+    model= SimpleRNN(input_size=1 ,hidden_size=hidden_size,output_size=text_dataset.vocab_size,cell_type="LSTM") ## 1 char a time
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     loss_fn=nn.CrossEntropyLoss()
