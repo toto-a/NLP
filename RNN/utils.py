@@ -3,11 +3,11 @@ from string import ascii_letters
 from unidecode import unidecode
 import os
 
-data_dir = "./data/names"
+data_dir = "/RNN/data/names"
 
 lang2label = {
     file_name.split(".")[0]: torch.tensor([i], dtype=torch.long)
-    for i, file_name in enumerate(os.listdir(data_dir))
+    for i, file_name in enumerate(os.listdir(os.getcwd() + data_dir))
 }
 label2lang = {label.item(): lang for lang, label in lang2label.items()}
 
@@ -29,8 +29,8 @@ def tensor2name(tensor):
 tensor_names = []
 target_langs = []
 
-for file in os.listdir(data_dir):
-    with open(os.path.join(data_dir, file)) as f:
+for file in os.listdir(os.getcwd()+ data_dir):
+    with open(os.path.join(os.getcwd()+data_dir, file)) as f:
         lang = file.split(".")[0]
         names = [unidecode(line.rstrip()) for line in f]
         for name in names:
