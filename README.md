@@ -7,6 +7,8 @@ This repository provides a codebase for Natural Language Processing (NLP) tasks,
 ## Models 
 A simple causal model for a biagram langage model can be found [Biagram_Model](https://github.com/toto-a/NLP-from-scratch-/tree/main/Example_Transformer_Biagram) alongside some of notes of the makemore series by Andrej Karpathy 
 
+A simple RNN/ LSTM cell model can be found here [rnn](https://github.com/toto-a/NLP-from-scratch-/tree/main/RNN%20%7C%20LSTM)
+
 A simple transformer for translation w\ hugging face [Transformers](https://github.com/toto-a/NLP-from-scratch-/tree/main/Build_Transformers)
 
 Inference code for llama2 [Llama2](https://github.com/toto-a/NLP-from-scratch-/tree/main/Build_llama2)
