@@ -17,3 +17,6 @@ A simple GPT model [GPT](https://github.com/toto-a/NLP-from-scratch-/tree/main/B
 
 ## Note 
 Disclaimer : The models and implementations in this repository are based on my understanding of NLP concepts and techniques. While I strive for accuracy and reliability, the content provided here may not reflect the latest advancements or best practices in the field.
+
+Things to finish : 
+[ ] Training script for gpt 
